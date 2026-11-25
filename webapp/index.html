@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827"><title>KOMI Flow</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#182438;--muted:#9aabc1;--accent:#38bdf8;--text:#f5f8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,-apple-system,sans-serif}
+main{max-width:720px;margin:auto;padding:18px 15px calc(22px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;margin:8px 0 20px}.brand{font-weight:800;font-size:22px;letter-spacing:-.5px}.brand span{color:var(--accent)}
+.plan{font-size:12px;padding:7px 10px;border-radius:20px;background:#24344b;color:#b8d9ed}
+.welcome{background:linear-gradient(135deg,#1b3650,#1a2840);padding:18px;border-radius:18px;margin-bottom:14px}.welcome h1{font-size:21px;margin:0 0 5px}.muted{color:var(--muted);font-size:13px}
+.quota{background:var(--panel);border-radius:14px;padding:13px 15px;margin:14px 0;display:flex;justify-content:space-between;align-items:center}
+.progress{height:6px;background:#304056;border-radius:10px;margin-top:10px;overflow:hidden}.progress i{display:block;height:100%;background:var(--accent);width:0}
+#chat{height:min(48vh,480px);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:5px 0 12px}
+.msg{max-width:88%;padding:11px 13px;border-radius:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.user{align-self:flex-end;background:#14577b}.model{align-self:flex-start;background:var(--panel)}
+.composer{display:flex;gap:8px;background:var(--panel);padding:8px;border-radius:16px;position:sticky;bottom:5px}.composer textarea{flex:1;resize:none;border:0;outline:0;background:transparent;color:var(--text);font:inherit;min-height:42px;max-height:120px;padding:10px}.composer button,.action{border:0;border-radius:12px;background:var(--accent);color:#062033;font-weight:700;padding:0 16px}
+.actions{display:flex;gap:9px;margin-top:12px}.action{padding:10px 13px;background:#24364d;color:#dceeff;font-size:13px}
+#notice{min-height:20px;color:#ffcb85;font-size:13px;margin:8px 2px}.typing{opacity:.7}
+</style></head>
+<body><main>
+<header><div class="brand">KOMI <span>Flow</span></div><div class="plan" id="plan">Chargement…</div></header>
+<section class="welcome"><h1 id="hello">Ton assistant IA, dans Telegram.</h1><div class="muted">Pose une question et avance plus vite avec Gemini.</div></section>
+<section class="quota"><div style="flex:1"><strong id="quotaText">Chargement du quota…</strong><div class="progress"><i id="bar"></i></div></div></section>
+<div class="actions"><button class="action" id="reset">Nouvelle conversation</button><button class="action" id="upgrade">Découvrir Premium</button></div>
+<div id="notice"></div><section id="chat" aria-live="polite"></section>
+<form class="composer" id="form"><textarea id="message" rows="1" placeholder="Écris ton message…" maxlength="6000"></textarea><button id="send" type="submit">Envoyer</button></form>
+</main>
+<script>
+const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();
+const initData=tg?.initData||"";const headers={"Content-Type":"application/json","X-Telegram-Init-Data":initData};
+const $=id=>document.getElementById(id);let busy=false;
+function notice(t){$("notice").textContent=t||""}
+function add(role,text){const el=document.createElement("div");el.className="msg "+role;el.textContent=text;$("chat").appendChild(el);$("chat").scrollTop=$("chat").scrollHeight}
+async function api(url,opts={}){const r=await fetch(url,{...opts,headers:{...headers,...opts.headers}});let data={};try{data=await r.json()}catch{}if(!r.ok)throw new Error(data.detail||"Une erreur est survenue.");return data}
+function quota(data){$("plan").textContent=data.plan==="premium"?"✦ PREMIUM":"GRATUIT";$("quotaText").textContent=data.remaining+" / "+data.limit+" messages restants aujourd'hui";$("bar").style.width=(100*data.used/data.limit)+"%";if(data.first_name)$("hello").textContent="Bonjour "+data.first_name+" !"}
+async function boot(){try{if(!initData)throw new Error("Ouvre cette Mini App depuis le bouton du bot Telegram.");const me=await api("/api/me");quota(me);const h=await api("/api/history");h.messages.forEach(m=>add(m.role==="user"?"user":"model",m.content))}catch(e){notice(e.message)}}
+$("form").addEventListener("submit",async e=>{e.preventDefault();if(busy)return;const value=$("message").value.trim();if(!value)return;if(!initData){notice("Ouvre KOMI Flow depuis Telegram.");return}busy=true;$("send").disabled=true;$("message").value="";add("user",value);notice("KOMI réfléchit…");try{const r=await api("/api/chat",{method:"POST",body:JSON.stringify({message:value})});add("model",r.answer);const me=await api("/api/me");quota(me);notice("")}catch(err){notice(err.message==="QUOTA_REACHED"?"Quota gratuit atteint. Passe à Premium pour continuer.":err.message)}finally{busy=false;$("send").disabled=false}});
+$("reset").onclick=async()=>{try{await api("/api/reset",{method:"POST"});$("chat").innerHTML="";notice("Conversation effacée.")}catch(e){notice(e.message)}};
+$("upgrade").onclick=()=>notice("Premium : quota supérieur et historique étendu. Les paiements seront activés dans une prochaine étape.");
+boot();
+</script></body></html>
