@@ -40,13 +40,24 @@ if not BOT_TOKEN or not GEMINI_KEY:
 client = genai.Client(api_key=GEMINI_KEY)
 telegram_app = Application.builder().token(BOT_TOKEN).build()
 
+@contextmanager
 def db():
-    conn = sqlite3.connect(DATABASE_PATH)
+    Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    return conn
+    conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def init_db():
     with db() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY, first_name TEXT DEFAULT '',
             plan TEXT DEFAULT 'free', premium_until INTEGER DEFAULT 0,
