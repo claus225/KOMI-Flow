@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
@@ -52,6 +52,11 @@ def init_db():
             plan TEXT DEFAULT 'free', premium_until INTEGER DEFAULT 0,
             created_at INTEGER NOT NULL, usage_day TEXT DEFAULT '',
             daily_count INTEGER DEFAULT 0)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            usage_day TEXT NOT NULL, status TEXT NOT NULL,
+            created_at INTEGER NOT NULL)""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_events_user_day ON usage_events(user_id, usage_day, status)")
         conn.execute("""CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
             role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)""")
@@ -70,10 +75,17 @@ def get_user(user_id):
 def telegram_init_data_valid(init_data: str) -> dict:
     if not init_data:
         raise HTTPException(401, "Ouvre KOMI Flow depuis Telegram.")
-    values = dict(parse_qsl(init_data, keep_blank_values=True))
+    pairs = parse_qsl(init_data, keep_blank_values=True)
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise HTTPException(401, "Données Telegram invalides.")
+    values = dict(pairs)
     received_hash = values.pop("hash", None)
-    auth_date = int(values.get("auth_date", "0") or 0)
-    if not received_hash or abs(time.time() - auth_date) > 86400:
+    try:
+        auth_date = int(values.get("auth_date", "0") or 0)
+    except ValueError:
+        raise HTTPException(401, "Date de session Telegram invalide.")
+    now = int(time.time())
+    if not received_hash or auth_date > now + 60 or now - auth_date > 3600:
         raise HTTPException(401, "Session Telegram expirée. Rouvre la Mini App.")
     check_string = "\n".join(f"{k}={v}" for k, v in sorted(values.items()))
     secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
@@ -114,7 +126,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Utilise /start pour ouvrir KOMI Flow. Dans la Mini App, tu peux discuter avec l'IA et consulter ton quota.")
+    await update.message.reply_text("Utilise /start pour ouvrir KOMI Flow. Dans la Mini App, tu peux discuter avec l'IA et consulter ton quota.\n/plan — voir les offres et les quotas.") 
+
+async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user:
+        return
+    register_user(user)
+    record = get_user(user.id)
+    premium = record["plan"] == "premium" and record["premium_until"] > int(time.time())
+    plan = "Premium" if premium else "Gratuit"
+    quota = PREMIUM_DAILY_LIMIT if premium else FREE_DAILY_LIMIT
+    await update.message.reply_text(
+        f"Ton offre : {plan}\nQuota : {quota} messages par jour.\n"
+        "Le passage Premium est actuellement activé par l'administrateur. "
+        "Les paiements automatiques ne sont pas encore disponibles."
+    )
 
 async def grant_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user or update.effective_user.id not in ADMIN_IDS:
@@ -124,19 +151,33 @@ async def grant_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage : /grantpremium ID_UTILISATEUR JOURS")
         return
     user_id, days = map(int, context.args)
-    until = int(time.time()) + days * 86400
+    if days < 1 or days > 365:
+        await update.message.reply_text("La durée doit être comprise entre 1 et 365 jours.")
+        return
     with db() as conn:
+        row = conn.execute("SELECT premium_until FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not row:
+            await update.message.reply_text("Utilisateur introuvable. Il doit d'abord lancer /start.")
+            return
+        until = max(int(time.time()), int(row["premium_until"] or 0)) + days * 86400
         conn.execute("UPDATE users SET plan='premium', premium_until=? WHERE user_id=?", (until, user_id))
     await update.message.reply_text(f"Premium activé pour {user_id} pendant {days} jour(s).")
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("help", help_command))
+telegram_app.add_handler(CommandHandler("plan", plan_command))
 telegram_app.add_handler(CommandHandler("grantpremium", grant_premium))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     await telegram_app.initialize()
+    if WEBAPP_URL:
+        await telegram_app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="KOMI Flow", web_app=WebAppInfo(url=WEBAPP_URL + "/app")
+            )
+        )
     await telegram_app.start()
     await telegram_app.updater.start_polling(drop_pending_updates=True)
     log.info("KOMI Flow démarré")
@@ -169,7 +210,13 @@ async def me(request: Request):
     plan = "premium" if premium_active else "free"
     limit = PREMIUM_DAILY_LIMIT if premium_active else FREE_DAILY_LIMIT
     today = time.strftime("%Y-%m-%d", time.gmtime())
-    used = user["daily_count"] if user["usage_day"] == today else 0
+    with db() as conn:
+        conn.execute("UPDATE usage_events SET status='expired' WHERE user_id=? AND usage_day=? AND status='reserved' AND created_at<?",
+                     (user["user_id"], today, int(time.time()) - 300))
+        used = conn.execute(
+            "SELECT COUNT(*) FROM usage_events WHERE user_id=? AND usage_day=? AND status IN ('reserved','used')",
+            (user["user_id"], today)
+        ).fetchone()[0]
     return {"id": user["user_id"], "first_name": user["first_name"], "plan": plan,
             "used": used, "limit": limit, "remaining": max(0, limit-used)}
 
@@ -192,13 +239,19 @@ async def chat(payload: ChatInput, request: Request):
 
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT usage_day, daily_count FROM users WHERE user_id=?", (user_id,)).fetchone()
-        used = row["daily_count"] if row["usage_day"] == today else 0
+        conn.execute("UPDATE usage_events SET status='expired' WHERE user_id=? AND usage_day=? AND status='reserved' AND created_at<?",
+                     (user_id, today, now - 300))
+        used = conn.execute(
+            "SELECT COUNT(*) FROM usage_events WHERE user_id=? AND usage_day=? AND status IN ('reserved','used')",
+            (user_id, today)
+        ).fetchone()[0]
         if used >= limit:
             conn.rollback()
             raise HTTPException(429, "QUOTA_REACHED")
-        conn.execute("UPDATE users SET usage_day=?, daily_count=? WHERE user_id=?",
-                     (today, used + 1, user_id))
+        reservation = conn.execute(
+            "INSERT INTO usage_events(user_id, usage_day, status, created_at) VALUES(?,?,?,?)",
+            (user_id, today, "reserved", now)
+        ).lastrowid
         previous = conn.execute("SELECT role, content FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 12",
                                 (user_id,)).fetchall()
         conn.commit()
@@ -216,11 +269,13 @@ async def chat(payload: ChatInput, request: Request):
     except Exception:
         log.exception("Erreur Gemini")
         with db() as conn:
-            conn.execute("UPDATE users SET daily_count=MAX(0,daily_count-1) WHERE user_id=? AND usage_day=?",
-                         (user_id, today))
+            conn.execute("UPDATE usage_events SET status='refunded' WHERE id=? AND user_id=? AND status='reserved'",
+                         (reservation, user_id))
         raise HTTPException(502, "Le service IA est temporairement indisponible.")
 
     with db() as conn:
+        conn.execute("UPDATE usage_events SET status='used' WHERE id=? AND user_id=? AND status='reserved'",
+                     (reservation, user_id))
         conn.executemany("INSERT INTO messages(user_id, role, content, created_at) VALUES(?,?,?,?)",
                          [(user_id, "user", payload.message, now), (user_id, "model", answer, int(time.time()))])
     return {"answer": answer, "used": used + 1, "limit": limit, "plan": "premium" if premium_active else "free"}
