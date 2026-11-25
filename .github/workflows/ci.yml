@@ -1,0 +1,20 @@
+name: KOMI Flow CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check Python syntax
+        run: python -m compileall -q server.py
+      - name: Check required files
+        run: test -f webapp/index.html && test -f requirements.txt && test -f Procfile
