@@ -31,6 +31,7 @@ Configure les variables suivantes dans les paramètres secrets de ton hébergeur
 - `TELEGRAM_BOT_TOKEN` : token donné par @BotFather.
 - `GEMINI_API_KEY` : clé Google AI Studio.
 - `WEBAPP_URL` : URL HTTPS publique du serveur.
+- `TELEGRAM_WEBHOOK_SECRET` : secret aléatoire (lettres, chiffres, `_` ou `-`) utilisé pour authentifier les appels webhook Telegram.
 - `ADMIN_IDS` : identifiants Telegram des administrateurs, séparés par des virgules.
 - `GEMINI_MODEL` : modèle Gemini, par défaut `gemini-2.5-flash`.
 - `FREE_DAILY_LIMIT` : quota quotidien gratuit, par défaut 15.
@@ -48,7 +49,7 @@ pip install -r requirements.txt
 uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-Le `Procfile` fournit la commande de démarrage pour les plateformes compatibles. Le service doit conserver un processus Python actif et un disque persistant pour le fichier SQLite.
+Le `Procfile` fournit la commande de démarrage pour les plateformes compatibles. Le bot reçoit les mises à jour Telegram par webhook HTTPS (pas par polling), ce qui convient mieux à un hébergement web. `WEBAPP_URL` et `TELEGRAM_WEBHOOK_SECRET` sont obligatoires au démarrage.
 
 ## Configurer la Mini App
 
@@ -81,6 +82,6 @@ KOMI Flow reprend des idées générales et des pratiques documentées dans ces 
 
 - Ajouter des tests automatisés pour l'authentification, les quotas et l'isolation des conversations.
 - Ajouter un vrai système de paiement et de renouvellement avant de commercialiser Premium.
-- Migrer vers PostgreSQL si le nombre d'utilisateurs augmente.
+- Migrer SQLite vers PostgreSQL avant un déploiement sur un hébergement sans disque persistant.
 - Ajouter une politique de confidentialité, une procédure de suppression des données et des limites anti-abus.
 - Le stockage SQLite doit être persistant sur l'hébergeur.
