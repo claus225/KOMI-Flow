@@ -190,6 +190,8 @@ async def lifespan(app: FastAPI):
                 text="KOMI Flow", web_app=WebAppInfo(url=WEBAPP_URL + "/app")
             )
         )
+    if not WEBAPP_URL or not TELEGRAM_WEBHOOK_SECRET:
+        raise RuntimeError("Configure WEBAPP_URL et TELEGRAM_WEBHOOK_SECRET pour activer le webhook.")
     await telegram_app.start()
     if WEBAPP_URL:
         await telegram_app.bot.set_webhook(
