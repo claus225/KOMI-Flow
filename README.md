@@ -1,64 +1,86 @@
-# KOMI Flow — SaaS Freemium dans Telegram
+# KOMI Flow — assistant IA Freemium dans Telegram
 
-KOMI Flow est un assistant IA accessible dans Telegram grâce à un bot et une Telegram Mini App. Le backend utilise FastAPI, SQLite et Google Gemini.
+KOMI Flow est un assistant IA servi par un bot Telegram et une Telegram Mini App. Le backend utilise Python, FastAPI, SQLite et Google Gemini.
 
-## Fonctionnalités actuellement préparées
+## Fonctionnalités intégrées
 
-- Mini App Telegram avec interface de discussion.
-- Connexion de la Mini App vérifiée par la signature officielle Telegram (initData).
-- Offre gratuite : 15 messages par jour (configurable).
-- Offre Premium : 200 messages par jour (configurable).
-- Historique récent des conversations conservé dans SQLite.
-- Commande administrateur `/grantpremium ID_UTILISATEUR JOURS`.
-- Commandes bot : `/start` et `/help`.
+- Mini App accessible depuis le bouton du bot et le menu Telegram.
+- Authentification des appels Mini App par validation HMAC de `initData`.
+- Offre gratuite : quota de 15 messages par jour par défaut.
+- Offre Premium : quota de 200 messages par jour par défaut.
+- Historique des 30 derniers messages, isolé par identifiant Telegram.
+- Comptage des quotas avec réservations atomiques SQLite pour limiter les dépassements en cas de requêtes simultanées.
+- Commandes `/start`, `/help`, `/plan` et `/grantpremium`.
+- Attribution Premium manuelle et réservée aux identifiants présents dans `ADMIN_IDS`.
 
-**Important :** le mode Premium est actuellement attribué manuellement par l'administrateur. Le paiement et le renouvellement automatique ne sont pas encore intégrés.
+## Modèle Freemium
 
-## Variables d'environnement
+| Offre | Quota quotidien | Accès |
+|---|---:|---|
+| Gratuit | 15 messages | Chat IA et historique récent |
+| Premium | 200 messages | Chat IA avec quota supérieur et historique récent |
 
-Configure ces variables dans les paramètres secrets de ton hébergeur (ne les publie jamais dans GitHub) :
+Les quotas sont configurables avec `FREE_DAILY_LIMIT` et `PREMIUM_DAILY_LIMIT`. Le compteur est réinitialisé chaque jour en UTC.
 
-- `TELEGRAM_BOT_TOKEN` : token de BotFather.
+**À savoir :** le paiement automatique et le renouvellement Premium ne sont pas encore activés. Pour le moment, un administrateur attribue Premium avec `/grantpremium ID_UTILISATEUR JOURS`. La Mini App ne doit pas afficher de paiement comme s'il était déjà disponible.
+
+## Configuration
+
+Configure les variables suivantes dans les paramètres secrets de ton hébergeur :
+
+- `TELEGRAM_BOT_TOKEN` : token donné par @BotFather.
 - `GEMINI_API_KEY` : clé Google AI Studio.
 - `WEBAPP_URL` : URL HTTPS publique du serveur.
-- `ADMIN_IDS` : identifiant numérique Telegram du ou des administrateurs, séparés par des virgules.
+- `ADMIN_IDS` : identifiants Telegram des administrateurs, séparés par des virgules.
 - `GEMINI_MODEL` : modèle Gemini, par défaut `gemini-2.5-flash`.
-- `FREE_DAILY_LIMIT` : quota gratuit, par défaut 15.
-- `PREMIUM_DAILY_LIMIT` : quota Premium, par défaut 200.
-- `DATABASE_PATH` : fichier SQLite, par défaut `komi_flow.db`.
+- `FREE_DAILY_LIMIT` : quota quotidien gratuit, par défaut 15.
+- `PREMIUM_DAILY_LIMIT` : quota quotidien Premium, par défaut 200.
+- `DATABASE_PATH` : chemin du fichier SQLite, par défaut `komi_flow.db`.
 
-## Déploiement
+Ne place jamais les clés dans GitHub, le HTML ou les messages Telegram. Utilise les variables d'environnement privées de l'hébergeur.
 
-Python 3.11+ est recommandé.
+## Lancer le projet
+
+Python 3.11+ :
 
 ```bash
 pip install -r requirements.txt
 uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-Le `Procfile` lance la même commande sur les plateformes compatibles. Il faut un hébergeur qui conserve le processus Python actif et un stockage persistant pour `komi_flow.db`.
+Le `Procfile` fournit la commande de démarrage pour les plateformes compatibles. Le service doit conserver un processus Python actif et un disque persistant pour le fichier SQLite.
 
-## Configuration Telegram Mini App
+## Configurer la Mini App
 
-1. Déploie le serveur avec une URL HTTPS publique.
-2. Renseigne cette URL complète dans `WEBAPP_URL`.
-3. Dans Telegram, ouvre `@BotFather`, utilise `/setdomain` et associe le domaine HTTPS de ton serveur au bot.
-4. Redémarre le serveur, puis envoie `/start` au bot.
-5. Ouvre la Mini App depuis le bouton du bot.
+1. Déploie le serveur sur une adresse HTTPS publique.
+2. Ajoute cette adresse dans la variable `WEBAPP_URL`.
+3. Dans @BotFather, configure le domaine du bot avec `/setdomain`.
+4. Redémarre le serveur.
+5. Envoie `/start` au bot : le bouton d'ouverture de la Mini App apparaîtra. Le serveur configure aussi le bouton de menu Telegram.
 
-## Attribution Premium
+## Gérer les utilisateurs Premium
 
-Ajoute ton identifiant Telegram dans `ADMIN_IDS`, puis utilise dans le chat du bot :
+Ajoute ton propre identifiant Telegram à `ADMIN_IDS`, puis envoie au bot :
 
 ```
 /grantpremium ID_UTILISATEUR 30
 ```
 
-Cela attribue 30 jours de Premium. Ne donne jamais le rôle administrateur à une personne non autorisée.
+Cela ajoute 30 jours à l'abonnement Premium de l'utilisateur. La commande est limitée aux administrateurs autorisés.
 
-## Limites à connaître
+## Références d'architecture étudiées
 
-- Les paiements Telegram et abonnements automatiques ne sont pas encore intégrés.
-- SQLite convient à un premier lancement ; pour un SaaS avec beaucoup d'utilisateurs, prévoir une base PostgreSQL.
-- L'hébergeur doit fournir un stockage persistant si tu veux conserver les conversations après redémarrage.
-- Le site vitrine précédent n'est pas nécessaire au fonctionnement de la Mini App.
+KOMI Flow reprend des idées générales et des pratiques documentées dans ces projets publics, sans importer leur code :
+
+- [SorhyAI](https://github.com/FarkhodovIslom/SorhyAI) — séparation bot / Mini App / API, plans Freemium et fonctionnalités administrateur.
+- [AI Token Platform](https://github.com/shiny-a2/ai-token-platform) — authentification Telegram Mini App, quotas et séparation des données utilisateurs.
+- [telegram-ai](https://github.com/shulya-tech/telegram-ai) — intégration Gemini, quotas et gestion des accès.
+- [Telegram Mini App with OpenUI](https://github.com/thesysdev/telegram-mini-app) — lancement de Mini App et validation d'identité Telegram.
+
+## Limites et prochaines étapes
+
+- Ajouter des tests automatisés pour l'authentification, les quotas et l'isolation des conversations.
+- Ajouter un vrai système de paiement et de renouvellement avant de commercialiser Premium.
+- Migrer vers PostgreSQL si le nombre d'utilisateurs augmente.
+- Ajouter une politique de confidentialité, une procédure de suppression des données et des limites anti-abus.
+- Le stockage SQLite doit être persistant sur l'hébergeur.
