@@ -29,6 +29,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 BOT_NAME = os.getenv("BOT_NAME", "KOMI Flow")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "komi_flow.db")
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
 PREMIUM_DAILY_LIMIT = int(os.getenv("PREMIUM_DAILY_LIMIT", "200"))
@@ -190,10 +191,20 @@ async def lifespan(app: FastAPI):
             )
         )
     await telegram_app.start()
-    await telegram_app.updater.start_polling(drop_pending_updates=True)
+    if WEBAPP_URL:
+        await telegram_app.bot.set_webhook(
+            url=WEBAPP_URL + "/telegram/webhook",
+            secret_token=TELEGRAM_WEBHOOK_SECRET or None,
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+        )
+        log.info("Webhook Telegram configuré")
+    else:
+        log.warning("WEBAPP_URL absent : webhook Telegram non configuré")
     log.info("KOMI Flow démarré")
     yield
-    await telegram_app.updater.stop()
+    if WEBAPP_URL:
+        await telegram_app.bot.delete_webhook(drop_pending_updates=False)
     await telegram_app.stop()
     await telegram_app.shutdown()
 
@@ -208,6 +219,21 @@ async def home():
 
 @app.get("/health")
 async def health():
+    return {"ok": True}
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    if TELEGRAM_WEBHOOK_SECRET:
+        supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not hmac.compare_digest(supplied, TELEGRAM_WEBHOOK_SECRET):
+            raise HTTPException(403, "Webhook non autorisé.")
+    try:
+        payload = await request.json()
+        update = Update.de_json(payload, telegram_app.bot)
+        await telegram_app.update_queue.put(update)
+    except Exception:
+        log.exception("Mise à jour Telegram invalide")
+        raise HTTPException(400, "Mise à jour Telegram invalide.")
     return {"ok": True}
 
 @app.get("/app")
