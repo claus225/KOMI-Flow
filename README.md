@@ -1,74 +1,64 @@
-# KOMI Flow — Bot Telegram intelligent
+# KOMI Flow — SaaS Freemium dans Telegram
 
-KOMI Flow est un assistant Telegram en Python connecté à Google Gemini. Il répond aux messages texte et conserve un court historique temporaire par discussion pendant que le programme fonctionne.
+KOMI Flow est un assistant IA accessible dans Telegram grâce à un bot et une Telegram Mini App. Le backend utilise FastAPI, SQLite et Google Gemini.
 
-## Fonctionnalités
+## Fonctionnalités actuellement préparées
 
-- Réponses générées par Google Gemini.
-- Commandes Telegram : `/start`, `/help`, `/about` et `/reset`.
-- Historique de conversation temporaire en mémoire.
-- Configuration par variables d'environnement.
-- Déploiement possible comme worker Python ou avec Docker.
+- Mini App Telegram avec interface de discussion.
+- Connexion de la Mini App vérifiée par la signature officielle Telegram (initData).
+- Offre gratuite : 15 messages par jour (configurable).
+- Offre Premium : 200 messages par jour (configurable).
+- Historique récent des conversations conservé dans SQLite.
+- Commande administrateur `/grantpremium ID_UTILISATEUR JOURS`.
+- Commandes bot : `/start` et `/help`.
 
-## Configuration
+**Important :** le mode Premium est actuellement attribué manuellement par l'administrateur. Le paiement et le renouvellement automatique ne sont pas encore intégrés.
 
-1. Dans Telegram, ouvre **@BotFather**, envoie `/newbot` et suis les étapes pour obtenir le token du bot.
-2. Crée une clé API Gemini dans [Google AI Studio](https://aistudio.google.com/).
-3. Copie `.env.example` vers un fichier nommé `.env` et renseigne les valeurs :
+## Variables d'environnement
 
-```env
-TELEGRAM_BOT_TOKEN=ton_token_telegram
-GEMINI_API_KEY=ta_cle_gemini
-GEMINI_MODEL=gemini-2.5-flash
-BOT_NAME=KOMI Flow
-```
+Configure ces variables dans les paramètres secrets de ton hébergeur (ne les publie jamais dans GitHub) :
 
-**Important :** ne publie jamais le fichier `.env`, le token Telegram ou la clé Gemini. Le fichier `.gitignore` exclut déjà `.env` du dépôt.
-
-## Installation et démarrage
-
-Python 3.11 ou plus récent est recommandé.
-
-```bash
-python -m venv .venv
-```
-
-Active l'environnement virtuel, puis installe les dépendances :
-
-```bash
-pip install -r requirements.txt
-```
-
-Lance le bot :
-
-```bash
-python main.py
-```
-
-Ouvre ensuite ton bot dans Telegram et envoie `/start`.
+- `TELEGRAM_BOT_TOKEN` : token de BotFather.
+- `GEMINI_API_KEY` : clé Google AI Studio.
+- `WEBAPP_URL` : URL HTTPS publique du serveur.
+- `ADMIN_IDS` : identifiant numérique Telegram du ou des administrateurs, séparés par des virgules.
+- `GEMINI_MODEL` : modèle Gemini, par défaut `gemini-2.5-flash`.
+- `FREE_DAILY_LIMIT` : quota gratuit, par défaut 15.
+- `PREMIUM_DAILY_LIMIT` : quota Premium, par défaut 200.
+- `DATABASE_PATH` : fichier SQLite, par défaut `komi_flow.db`.
 
 ## Déploiement
 
-Le `Procfile` définit le processus worker avec la commande `python main.py`. Le `Dockerfile` permet également de construire une image du bot. Sur la plateforme d'hébergement choisie, configure les variables d'environnement suivantes : `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `GEMINI_MODEL` et `BOT_NAME`.
+Python 3.11+ est recommandé.
 
-## Limites actuelles
+```bash
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
 
-- Le bot traite les messages texte, pas encore les photos, fichiers ou notes vocales.
-- L'historique est conservé en mémoire et disparaît au redémarrage.
-- Les quotas et conditions d'utilisation de l'API Gemini dépendent du compte Google utilisé.
-- Le bot n'est pas encore déployé sur un hébergeur : il faut configurer les clés et choisir un service d'hébergement pour le laisser fonctionner en continu.
+Le `Procfile` lance la même commande sur les plateformes compatibles. Il faut un hébergeur qui conserve le processus Python actif et un stockage persistant pour `komi_flow.db`.
 
+## Configuration Telegram Mini App
 
-## Site web gratuit avec GitHub Pages
+1. Déploie le serveur avec une URL HTTPS publique.
+2. Renseigne cette URL complète dans `WEBAPP_URL`.
+3. Dans Telegram, ouvre `@BotFather`, utilise `/setdomain` et associe le domaine HTTPS de ton serveur au bot.
+4. Redémarre le serveur, puis envoie `/start` au bot.
+5. Ouvre la Mini App depuis le bouton du bot.
 
-Le site vitrine est disponible dans `index.html`. Pour le publier gratuitement :
+## Attribution Premium
 
-1. Ouvre **Settings → Pages** dans le dépôt GitHub.
-2. Sous **Build and deployment**, choisis **Deploy from a branch**.
-3. Sélectionne la branche **main** et le dossier **/(root)**, puis clique sur **Save**.
-4. Après publication, le site sera accessible à l'adresse habituelle :
-   https://claus225.github.io/KOMI-Flow/
+Ajoute ton identifiant Telegram dans `ADMIN_IDS`, puis utilise dans le chat du bot :
 
-Le site statique ne fait pas tourner le bot Python. Il faudra confirmer le nom public Telegram du bot pour remplacer le lien générique Telegram dans le bouton de la page.
+```
+/grantpremium ID_UTILISATEUR 30
+```
 
-Ne place jamais de token Telegram ni de clé API Gemini dans le site ou dans GitHub.
+Cela attribue 30 jours de Premium. Ne donne jamais le rôle administrateur à une personne non autorisée.
+
+## Limites à connaître
+
+- Les paiements Telegram et abonnements automatiques ne sont pas encore intégrés.
+- SQLite convient à un premier lancement ; pour un SaaS avec beaucoup d'utilisateurs, prévoir une base PostgreSQL.
+- L'hébergeur doit fournir un stockage persistant si tu veux conserver les conversations après redémarrage.
+- Le site vitrine précédent n'est pas nécessaire au fonctionnement de la Mini App.
