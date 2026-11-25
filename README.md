@@ -57,3 +57,18 @@ Le `Procfile` définit le processus worker avec la commande `python main.py`. Le
 - L'historique est conservé en mémoire et disparaît au redémarrage.
 - Les quotas et conditions d'utilisation de l'API Gemini dépendent du compte Google utilisé.
 - Le bot n'est pas encore déployé sur un hébergeur : il faut configurer les clés et choisir un service d'hébergement pour le laisser fonctionner en continu.
+
+
+## Site web gratuit avec GitHub Pages
+
+Le site vitrine est disponible dans `index.html`. Pour le publier gratuitement :
+
+1. Ouvre **Settings → Pages** dans le dépôt GitHub.
+2. Sous **Build and deployment**, choisis **Deploy from a branch**.
+3. Sélectionne la branche **main** et le dossier **/(root)**, puis clique sur **Save**.
+4. Après publication, le site sera accessible à l'adresse habituelle :
+   https://claus225.github.io/KOMI-Flow/
+
+Le site statique ne fait pas tourner le bot Python. Il faudra confirmer le nom public Telegram du bot pour remplacer le lien générique Telegram dans le bouton de la page.
+
+Ne place jamais de token Telegram ni de clé API Gemini dans le site ou dans GitHub.
