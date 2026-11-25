@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="KOMI Flow, votre assistant intelligent propulsé par l'IA.">
+  <title>KOMI Flow — Assistant intelligent</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--panel:#121d30;--text:#f4f7fb;--muted:#a9b6c9;--accent:#7c9cff;--mint:#65e0c1}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(ellipse at 75% 0%,#1b3157 0,transparent 42%),var(--bg);color:var(--text);line-height:1.6}
+    a{color:inherit}.wrap{width:min(1080px,92%);margin:auto}.nav{display:flex;align-items:center;justify-content:space-between;padding:24px 0}.brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.3px}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--mint));color:#091323;font-weight:900}
+    .nav a{color:var(--muted);text-decoration:none}.hero{padding:86px 0 76px;max-width:760px}.tag{display:inline-flex;gap:8px;align-items:center;padding:7px 13px;border:1px solid #344665;border-radius:99px;color:#c7d5f1;background:#14233b;font-size:.88rem}.dot{width:8px;height:8px;border-radius:50%;background:var(--mint)}h1{font-size:clamp(2.7rem,7vw,5.2rem);line-height:1.04;letter-spacing:-.055em;margin:24px 0}h1 span{background:linear-gradient(90deg,#91aaff,var(--mint));-webkit-background-clip:text;background-clip:text;color:transparent}.lead{font-size:1.18rem;color:var(--muted);max-width:620px}.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:30px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 20px;border-radius:13px;text-decoration:none;font-weight:750;background:linear-gradient(110deg,var(--accent),var(--mint));color:#091323}.secondary{border:1px solid #3a4a66;color:var(--text);background:#142033}.section{padding:54px 0}.section h2{font-size:2rem;letter-spacing:-.03em}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{padding:23px;border:1px solid #283750;background:rgba(18,29,48,.82);border-radius:18px}.card .ico{font-size:1.6rem}.card h3{margin:12px 0 6px}.card p{margin:0;color:var(--muted)}.notice{margin:18px 0 0;padding:16px 18px;border-radius:14px;background:#17243a;color:#c1cde0;border:1px solid #2b3c58;font-size:.93rem}.footer{border-top:1px solid #26344a;padding:26px 0;color:var(--muted);font-size:.9rem}
+    @media(max-width:720px){.hero{padding:62px 0 50px}.cards{grid-template-columns:1fr}.nav{padding:18px 0}.section{padding:38px 0}}
+  </style>
+</head>
+<body>
+  <header class="wrap nav">
+    <div class="brand"><div class="logo">K</div><span>KOMI Flow</span></div>
+    <a href="#apropos">À propos</a>
+  </header>
+  <main>
+    <section class="wrap hero">
+      <div class="tag"><span class="dot"></span> Assistant intelligent · Projet en préparation</div>
+      <h1>Les idées avancent.<br><span>KOMI Flow aussi.</span></h1>
+      <p class="lead">Un assistant intelligent conçu pour vous aider à poser vos questions, explorer des idées et gagner du temps grâce à l'intelligence artificielle.</p>
+      <div class="actions">
+        <a class="btn" href="https://t.me/" target="_blank" rel="noopener">Ouvrir Telegram ↗</a>
+        <a class="btn secondary" href="#apropos">Découvrir le projet</a>
+      </div>
+      <p class="notice">Le bot Telegram est en cours de configuration. Le lien direct vers le bot sera ajouté dès que son identifiant public sera confirmé.</p>
+    </section>
+    <section class="wrap section" id="apropos">
+      <h2>Un assistant, plusieurs possibilités.</h2>
+      <div class="cards">
+        <article class="card"><div class="ico">💬</div><h3>Conversations</h3><p>Posez vos questions simplement et échangez en langage naturel.</p></article>
+        <article class="card"><div class="ico">✨</div><h3>Idées & créativité</h3><p>Faites émerger des idées, préparez vos textes et explorez des pistes.</p></article>
+        <article class="card"><div class="ico">⚡</div><h3>Simple à utiliser</h3><p>Une expérience pensée pour être claire, rapide et adaptée au mobile.</p></article>
+      </div>
+    </section>
+    <section class="wrap section">
+      <div class="card"><h2>Bienvenue dans KOMI Flow.</h2><p>Le projet évolue étape par étape. Revenez bientôt pour découvrir les prochaines fonctionnalités.</p></div>
+    </section>
+  </main>
+  <footer class="footer"><div class="wrap">© <span id="year"></span> KOMI Flow. Tous droits réservés.</div></footer>
+  <script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+</body>
+</html>
