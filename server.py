@@ -1,0 +1,233 @@
+import asyncio
+import hashlib
+import hmac
+import json
+import logging
+import os
+import sqlite3
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import parse_qsl
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from google import genai
+from google.genai import types
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+load_dotenv()
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("komi-flow")
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+BOT_NAME = os.getenv("BOT_NAME", "KOMI Flow")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
+DATABASE_PATH = os.getenv("DATABASE_PATH", "komi_flow.db")
+ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
+PREMIUM_DAILY_LIMIT = int(os.getenv("PREMIUM_DAILY_LIMIT", "200"))
+BASE_DIR = Path(__file__).resolve().parent
+
+if not BOT_TOKEN or not GEMINI_KEY:
+    raise RuntimeError("Configure TELEGRAM_BOT_TOKEN et GEMINI_API_KEY dans les variables d'environnement.")
+
+client = genai.Client(api_key=GEMINI_KEY)
+telegram_app = Application.builder().token(BOT_TOKEN).build()
+
+def db():
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with db() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY, first_name TEXT DEFAULT '',
+            plan TEXT DEFAULT 'free', premium_until INTEGER DEFAULT 0,
+            created_at INTEGER NOT NULL, usage_day TEXT DEFAULT '',
+            daily_count INTEGER DEFAULT 0)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)""")
+
+def register_user(user):
+    with db() as conn:
+        conn.execute("INSERT OR IGNORE INTO users(user_id, first_name, created_at) VALUES(?,?,?)",
+                     (user.id, user.first_name or "", int(time.time())))
+        conn.execute("UPDATE users SET first_name=? WHERE user_id=?", (user.first_name or "", user.id))
+
+def get_user(user_id):
+    with db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+def telegram_init_data_valid(init_data: str) -> dict:
+    if not init_data:
+        raise HTTPException(401, "Ouvre KOMI Flow depuis Telegram.")
+    values = dict(parse_qsl(init_data, keep_blank_values=True))
+    received_hash = values.pop("hash", None)
+    auth_date = int(values.get("auth_date", "0") or 0)
+    if not received_hash or abs(time.time() - auth_date) > 86400:
+        raise HTTPException(401, "Session Telegram expirée. Rouvre la Mini App.")
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(values.items()))
+    secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, received_hash):
+        raise HTTPException(401, "Signature Telegram invalide.")
+    try:
+        user = json.loads(values["user"])
+    except Exception:
+        raise HTTPException(401, "Profil Telegram introuvable.")
+    return user
+
+async def current_user(request: Request):
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    tg_user = telegram_init_data_valid(init_data)
+    register_user(type("TelegramUser", (), {
+        "id": int(tg_user["id"]), "first_name": tg_user.get("first_name", "")
+    })())
+    return get_user(int(tg_user["id"]))
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or not update.message:
+        return
+    register_user(update.effective_user)
+    if WEBAPP_URL:
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(
+            "🚀 Ouvrir KOMI Flow", web_app=WebAppInfo(url=WEBAPP_URL + "/app")
+        )]])
+        await update.message.reply_text(
+            f"Bienvenue sur {BOT_NAME} !\nTon assistant IA dans Telegram.\n\n"
+            "Appuie ci-dessous pour ouvrir ta Mini App.",
+            reply_markup=keyboard
+        )
+    else:
+        await update.message.reply_text(
+            "Bienvenue sur KOMI Flow ! La Mini App n'est pas encore configurée. "
+            "L'administrateur doit définir WEBAPP_URL."
+        )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Utilise /start pour ouvrir KOMI Flow. Dans la Mini App, tu peux discuter avec l'IA et consulter ton quota.")
+
+async def grant_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("Commande réservée à l'administrateur.")
+        return
+    if len(context.args) != 2 or not all(x.isdigit() for x in context.args):
+        await update.message.reply_text("Usage : /grantpremium ID_UTILISATEUR JOURS")
+        return
+    user_id, days = map(int, context.args)
+    until = int(time.time()) + days * 86400
+    with db() as conn:
+        conn.execute("UPDATE users SET plan='premium', premium_until=? WHERE user_id=?", (until, user_id))
+    await update.message.reply_text(f"Premium activé pour {user_id} pendant {days} jour(s).")
+
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("help", help_command))
+telegram_app.add_handler(CommandHandler("grantpremium", grant_premium))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling(drop_pending_updates=True)
+    log.info("KOMI Flow démarré")
+    yield
+    await telegram_app.updater.stop()
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+app = FastAPI(title="KOMI Flow API", lifespan=lifespan)
+
+class ChatInput(BaseModel):
+    message: str = Field(min_length=1, max_length=6000)
+
+@app.get("/")
+async def home():
+    return {"name": BOT_NAME, "status": "online", "mini_app": "/app"}
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+@app.get("/app")
+async def mini_app():
+    return FileResponse(BASE_DIR / "webapp" / "index.html")
+
+@app.get("/api/me")
+async def me(request: Request):
+    user = await current_user(request)
+    premium_active = user["plan"] == "premium" and user["premium_until"] > int(time.time())
+    plan = "premium" if premium_active else "free"
+    limit = PREMIUM_DAILY_LIMIT if premium_active else FREE_DAILY_LIMIT
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    used = user["daily_count"] if user["usage_day"] == today else 0
+    return {"id": user["user_id"], "first_name": user["first_name"], "plan": plan,
+            "used": used, "limit": limit, "remaining": max(0, limit-used)}
+
+@app.get("/api/history")
+async def history(request: Request):
+    user = await current_user(request)
+    with db() as conn:
+        rows = conn.execute("SELECT role, content FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 30",
+                            (user["user_id"],)).fetchall()
+    return {"messages": [dict(r) for r in reversed(rows)]}
+
+@app.post("/api/chat")
+async def chat(payload: ChatInput, request: Request):
+    user = await current_user(request)
+    user_id = user["user_id"]
+    now = int(time.time())
+    today = time.strftime("%Y-%m-%d", time.gmtime(now))
+    premium_active = user["plan"] == "premium" and user["premium_until"] > now
+    limit = PREMIUM_DAILY_LIMIT if premium_active else FREE_DAILY_LIMIT
+
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT usage_day, daily_count FROM users WHERE user_id=?", (user_id,)).fetchone()
+        used = row["daily_count"] if row["usage_day"] == today else 0
+        if used >= limit:
+            conn.rollback()
+            raise HTTPException(429, "QUOTA_REACHED")
+        conn.execute("UPDATE users SET usage_day=?, daily_count=? WHERE user_id=?",
+                     (today, used + 1, user_id))
+        previous = conn.execute("SELECT role, content FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 12",
+                                (user_id,)).fetchall()
+        conn.commit()
+
+    contents = [types.Content(role=r["role"], parts=[types.Part(text=r["content"])])
+                for r in reversed(previous)]
+    contents.append(types.Content(role="user", parts=[types.Part(text=payload.message)]))
+    try:
+        response = await client.aio.models.generate_content(
+            model=GEMINI_MODEL, contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=f"Tu es {BOT_NAME}, assistant IA utile et clair. Réponds dans la langue de l'utilisateur.",
+                temperature=0.7, max_output_tokens=1200))
+        answer = (response.text or "").strip() or "Je n'ai pas pu générer de réponse. Reformule ta question."
+    except Exception:
+        log.exception("Erreur Gemini")
+        with db() as conn:
+            conn.execute("UPDATE users SET daily_count=MAX(0,daily_count-1) WHERE user_id=? AND usage_day=?",
+                         (user_id, today))
+        raise HTTPException(502, "Le service IA est temporairement indisponible.")
+
+    with db() as conn:
+        conn.executemany("INSERT INTO messages(user_id, role, content, created_at) VALUES(?,?,?,?)",
+                         [(user_id, "user", payload.message, now), (user_id, "model", answer, int(time.time()))])
+    return {"answer": answer, "used": used + 1, "limit": limit, "plan": "premium" if premium_active else "free"}
+
+@app.post("/api/reset")
+async def reset_history(request: Request):
+    user = await current_user(request)
+    with db() as conn:
+        conn.execute("DELETE FROM messages WHERE user_id=?", (user["user_id"],))
+    return {"ok": True}
